@@ -31,33 +31,45 @@ class StockList(object):
 class Stock(object):
 
     def __str__(self):
-        return f"{self.symbol}, {self.buzz}, {self.bullish_percent}, {self.current_price}, {self.target_mean}, {self.target_diff}, {self.targetHiLowDiff}, {self.downside}"
+        return f"{self.symbol}, {self.buzz}, {self.bullish_percent}, {self.current_price}, {self.target_mean}, {self.target_diff}, {self.targetHiLowDiff}, {self.downside}, {self.PositiveChange30}, {self.PositiveChange60}, {self.CurrentStrongBuy}, {self.CurrentStrongSell}, {self.CurrentPercentPositive}"
 
     def __init__(self, symbol, run_id=""):
-      """[summary]
+        """[summary]
 
-      Args:
-          symbol ([type]): [description]
-          run_id (str, optional): run_id indicates if a run_id will be appended to the file output. Defaults to "".
-      """
-      self.run_id = run_id
-      self.symbol = symbol
-      self.finnhub_client = self._getFinnhubClient()
-      self.output_file = self._getOutputFile()
-      self.GetNewsSentiment()
-      self.GetPriceTarget()
-      self.GetPriceQuote()
-      self.GetTargetDiff()
-      self.GetHiLowTargetDiff()
-      self.GetDownside()
-      self.SaveToOutputFile()
+        Args:
+            symbol ([type]): [description]
+            run_id (str, optional): run_id indicates if a run_id will be appended to the file output. Defaults to "".
+        """
+        self.run_id = run_id
+        self.symbol = symbol
+        self.finnhub_client = self._getFinnhubClient()
+        self.output_file = self._getOutputFile()
+        self.GetNewsSentiment()
+        time.sleep(1)
+        self.GetPriceTarget()
+        self.GetPriceQuote()
+        time.sleep(1)
+        self.GetTargetDiff()
+        self.GetHiLowTargetDiff()
+        time.sleep(1)
+        self.GetDownside()
+        self.MonthlyTrends = self.GenerateMonthlyTrends(self.symbol)
+        self.PositiveChange30 = self.GetAmountChangeInPositiveByCycle(
+            self.MonthlyTrends, 1)
+        self.PositiveChange60 = self.GetAmountChangeInPositiveByCycle(
+            self.MonthlyTrends, 2)
+
+        # Not sure if 120 gives me much value.  commenting for now.
+        #self.PositiveChange120 = self.GetAmountChangeInPositiveByCycle(self.MonthlyTrends, 4)
+
+        self.SaveToOutputFile()
 
     def SaveToOutputFile(self):
         f = open(self.output_file, "a")
         if self.run_id == "":
-          f.write(f"{datetime.now()},{str(self)}\n")
+            f.write(f"{datetime.now()},{str(self)}\n")
         else:
-          f.write(f"{self.run_id},{datetime.now()},{str(self)}\n")
+            f.write(f"{self.run_id},{datetime.now()},{str(self)}\n")
         f.close()
 
     def _getOutputFile(self):
@@ -77,13 +89,65 @@ class Stock(object):
     def _getByTicker(self, ticker, func):
         try:
             n = func(ticker)
-        except finnhub.ApiException:
-            # print(f"Unable to access {func} data for {ticker}")
+        except finnhub.ApiException as err:
+            print(f"API Error {func} data for {ticker} due to {err}")
             return {}
         except AttributeError:
             # print(f"Attribute error for {ticker} in {func}")
             return 0
         return n
+
+    def GenerateMonthlyTrends(self, symbol):
+        recomendation_list = list()
+        for recomendation in self._getByTicker(symbol, self.finnhub_client.recommendation_trends):
+            try:
+                positive = recomendation.strong_buy + recomendation.buy
+                negative = recomendation.strong_sell + recomendation.sell
+                neutral = recomendation.hold
+                total = positive + negative + neutral
+                percent_positive = round(positive / total, 2) * 100
+                period = {
+                    "date": recomendation.period,
+                    "strong_buy": recomendation.strong_buy,
+                    "strong_sell": recomendation.strong_sell,
+                    "positive": positive,
+                    "negative": negative,
+                    "neutral": neutral,
+                    "total": total,
+                    "percent_positive": percent_positive,
+                }
+                recomendation_list.append(period)
+            except:
+                recomendation_list.append({
+                    "date": -1,
+                    "strong_buy": -1,
+                    "strong_sell": -1,
+                    "positive": -1,
+                    "negative": -1,
+                    "neutral": -1,
+                    "total": -1,
+                    "percent_positive": -1,
+                })
+        try:
+            self.CurrentPercentPositive = round(recomendation_list[0]["percent_positive"],2)
+            self.CurrentStrongBuy = recomendation_list[0]["strong_buy"]
+            self.CurrentStrongSell = recomendation_list[0]["strong_sell"]
+        except:
+            self.CurrentPercentPositive = -1.0
+            self.CurrentStrongBuy = -1
+            self.CurrentStrongSell = -1
+
+        return recomendation_list
+
+    def GetAmountChangeInPositiveByCycle(self, monthly_trends, cycle):
+        try:
+            current = monthly_trends[0]
+            compare = monthly_trends[cycle]
+            positive_change = current['positive'] - compare['positive']
+        except IndexError:
+            # index does not exist.  no data.
+            positive_change = None
+        return positive_change
 
     def GetDownside(self):
         if (self.target_low is not None and self.current_price is not None) and self.current_price > 0 and self.target_low > 0:
@@ -168,12 +232,12 @@ class Stock(object):
 
 
 #stocklist = StockList(0, 100)
-#n = Stock("IDXX")
+# n =Stock("IDXX")
 # print(stocklist.stock_list)
-print(Stock("IDXX"))
+# print(Stock("IDXX"))
 
 stock_details = []
-print("symbol, buzz, bullish%, current_price, target_mean, target_diff_from_cur, target_diff_hilow, possible_downside ")
+print("symbol, buzz, bullish%, current_price, target_mean, target_diff_from_cur, target_diff_hilow, possible_downside, 30dayPositiveChange, 60dayPositiveChange, CurrentStrongBuy, CurrentStrongSell, CurrentPercentPositive")
 for symbol in StockList(start_index=None, end_index=None).stock_list:
     # print(symbol)
   #f"{self.symbol}, {self.buzz}, {self.bullish_percent}, {self.current_price}, {self.target_mean}, {self.target_diff}, {self.targetHiLowDiff}, {self.downside}"
